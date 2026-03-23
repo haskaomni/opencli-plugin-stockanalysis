@@ -1,0 +1,65 @@
+site: stockanalysis
+name: gainers
+description: Get top gainers from StockAnalysis
+domain: stockanalysis.com
+strategy: public
+browser: true
+
+args:
+  limit:
+    type: int
+    default: 10
+    description: Number of rows to return
+
+pipeline:
+  - navigate: https://stockanalysis.com/
+  - evaluate: |
+      (async () => {
+        const limit = ${{ args.limit }};
+        const url = 'https://stockanalysis.com/markets/gainers/';
+        const resp = await fetch(url, { credentials: 'include' });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status} for ${url}`);
+
+        const html = await resp.text();
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const rows = Array.from(doc.querySelectorAll('table tbody tr'));
+
+        return rows.slice(0, limit).map((tr, index) => {
+          const cells = tr.querySelectorAll('td');
+          const offset = /^\d+$/.test(cells[0]?.textContent?.trim() || '') ? 1 : 0;
+          const symbolCell = cells[offset];
+          const nameCell = cells[offset + 1];
+          const changeCell = cells[offset + 2];
+          const priceCell = cells[offset + 3];
+          const volumeCell = cells[offset + 4];
+          const marketCapCell = cells[offset + 5];
+          const link = symbolCell?.querySelector('a');
+          const symbol = link?.textContent?.trim() || symbolCell?.textContent?.trim() || '';
+          const href = link?.getAttribute('href') || '';
+
+          return {
+            rank: index + 1,
+            symbol,
+            name: nameCell?.textContent?.trim() || '',
+            change: changeCell?.textContent?.trim() || '',
+            price: priceCell?.textContent?.trim() || '',
+            volume: volumeCell?.textContent?.trim() || '',
+            marketCap: marketCapCell?.textContent?.trim() || '',
+            url: href ? new URL(href, 'https://stockanalysis.com').toString() : null,
+          };
+        });
+      })()
+
+  - map:
+      rank: ${{ item.rank }}
+      symbol: ${{ item.symbol }}
+      name: ${{ item.name }}
+      price: ${{ item.price }}
+      change: ${{ item.change }}
+      volume: ${{ item.volume }}
+      marketCap: ${{ item.marketCap }}
+      url: ${{ item.url }}
+
+  - limit: ${{ args.limit }}
+
+columns: [rank, symbol, name, price, change, volume, marketCap]

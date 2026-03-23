@@ -1,0 +1,20 @@
+{
+  "name": "opencli-plugin-stockanalysis",
+  "version": "0.1.0",
+  "description": "OpenCLI plugin for public data on stockanalysis.com",
+  "keywords": [
+    "opencli",
+    "plugin",
+    "stocks",
+    "stockanalysis"
+  ],
+  "license": "UNLICENSED",
+  "scripts": {
+    "install:local": "bash ./install.sh"
+  },
+  "files": [
+    "*.yaml",
+    "README.md",
+    "install.sh"
+  ]
+}
