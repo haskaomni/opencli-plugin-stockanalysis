@@ -13,7 +13,7 @@
     "install:local": "bash ./install.sh"
   },
   "files": [
-    "*.yaml",
+    "*.js",
     "README.md",
     "install.sh"
   ]

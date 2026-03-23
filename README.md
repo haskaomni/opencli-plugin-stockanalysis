@@ -2,6 +2,8 @@
 
 `stockanalysis.com` 的 `opencli` 插件，走公开页面抓取，不需要登录，也不依赖私有 API。
 
+当前实现已经改成 JS public adapter，不再依赖 `browser evaluate`，因此比早期 YAML 版明显更快。
+
 ## Commands
 
 - `search`：搜索股票、ETF、基金
@@ -14,12 +16,12 @@
 
 ## Install
 
-推荐用复制安装，而不是整个目录做 symlink。`opencli 1.3.1` 能稳定识别真实目录里的 YAML，但不稳定识别站点目录 symlink。
+推荐用复制安装，而不是整个目录做 symlink。`opencli 1.3.1` 能稳定识别真实目录里的 plugin 文件，但不稳定识别站点目录 symlink。
 
 ```bash
 mkdir -p ~/.opencli/plugins
 mkdir -p ~/.opencli/plugins/stockanalysis
-cp /path/to/opencli-plugin-stockanalysis/*.yaml ~/.opencli/plugins/stockanalysis/
+cp /path/to/opencli-plugin-stockanalysis/*.js ~/.opencli/plugins/stockanalysis/
 ```
 
 也可以直接运行仓库自带脚本：
@@ -45,5 +47,5 @@ opencli stockanalysis news --limit 10
 
 - 当前实现基于公开 SSR HTML 和页面内嵌数据。
 - `stockanalysis.com` 页面结构变动后，解析规则可能需要同步更新。
-- `opencli explore` 当前能识别这是 `public` 站点，但自动合成不出可用命令，所以这里采用手写 YAML plugin。
+- `opencli explore` 当前能识别这是 `public` 站点，但自动合成不出可用命令，所以这里采用手写 plugin。
 - 当前验证环境为 `opencli v1.3.1`。
