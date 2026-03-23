@@ -8,6 +8,7 @@
 
 - `search`：搜索股票、ETF、基金
 - `quote`：查看单只股票概览
+- `financials`：查看公司财务数据
 - `gainers`：涨幅榜
 - `losers`：跌幅榜
 - `active`：成交活跃榜
@@ -35,6 +36,9 @@ OPENCLI_PLUGIN_DIR="$HOME/.opencli/plugins/stockanalysis" bash ./install.sh
 ```bash
 opencli stockanalysis search AAPL
 opencli stockanalysis quote NVDA
+opencli stockanalysis financials NVDA
+opencli stockanalysis financials NVDA --statement balance
+opencli stockanalysis financials NVDA --statement cashflow --metric "Free Cash Flow" --period quarterly --limit 4
 opencli stockanalysis gainers --limit 5
 opencli stockanalysis losers --limit 5
 opencli stockanalysis active --limit 5

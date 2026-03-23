@@ -206,6 +206,143 @@ async function quoteCommand(args) {
   }];
 }
 
+async function resolveStockDetail(query) {
+  const candidates = await symbolLookup(query);
+  const wanted = normalizeTicker(String(query || '').trim().toUpperCase());
+  const ranked = candidates.map((item) => {
+    const normalizedSymbol = normalizeTicker(item.symbol);
+    const plainSymbol = normalizeTicker(item.symbol.split(':').pop() || item.symbol);
+    let score = 0;
+    if (normalizedSymbol === wanted || plainSymbol === wanted) score += 100;
+    if (normalizedSymbol.endsWith(wanted) || plainSymbol.endsWith(wanted)) score += 50;
+    if (item.type === 'Stock') score += 20;
+    return { ...item, score };
+  }).sort((a, b) => b.score - a.score);
+  const pick = ranked.find((item) => item.url);
+  if (!pick) throw new Error(`No StockAnalysis result found for ${query}`);
+  return pick;
+}
+
+function financialStatementSpec(statement) {
+  const key = String(statement || 'income').toLowerCase();
+  if (key === 'income') {
+    return {
+      statement: 'income',
+      label: 'Income Statement',
+      path: 'financials/',
+      defaults: ['Revenue', 'Gross Profit', 'Operating Income', 'Pretax Income', 'Net Income', 'EPS (Diluted)', 'Free Cash Flow'],
+    };
+  }
+  if (key === 'balance' || key === 'balancesheet' || key === 'balance-sheet') {
+    return {
+      statement: 'balance',
+      label: 'Balance Sheet',
+      path: 'financials/balance-sheet/',
+      defaults: ['Cash & Equivalents', 'Total Current Assets', 'Total Assets', 'Total Liabilities', "Shareholders' Equity", 'Total Debt', 'Net Cash (Debt)'],
+    };
+  }
+  if (key === 'cashflow' || key === 'cash-flow' || key === 'cash-flow-statement' || key === 'cash') {
+    return {
+      statement: 'cashflow',
+      label: 'Cash Flow Statement',
+      path: 'financials/cash-flow-statement/',
+      defaults: ['Net Income', 'Operating Cash Flow', 'Capital Expenditures', 'Financing Cash Flow', 'Net Cash Flow', 'Free Cash Flow'],
+    };
+  }
+  throw new Error(`Unsupported statement "${statement}". Use income, balance, or cashflow.`);
+}
+
+function parseFinancialTable(html) {
+  const table = html.match(/<table[^>]*>([\s\S]*?)<\/table>/i)?.[1] || '';
+  const thead = table.match(/<thead[^>]*>([\s\S]*?)<\/thead>/i)?.[1] || '';
+  const tbody = table.match(/<tbody[^>]*>([\s\S]*?)<\/tbody>/i)?.[1] || '';
+  const headers = Array.from(thead.matchAll(/<th[^>]*>([\s\S]*?)<\/th>/gi), (m) => stripHtml(m[1]));
+  const periodEndingIndex = headers.indexOf('Period Ending');
+  if (periodEndingIndex === -1) {
+    throw new Error('Could not parse StockAnalysis financial table headers');
+  }
+
+  const periods = headers.slice(1, periodEndingIndex);
+  const endDates = headers.slice(periodEndingIndex + 1, periodEndingIndex + 1 + periods.length);
+  const rows = Array.from(tbody.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/gi), (m) => {
+    const cells = Array.from(m[1].matchAll(/<t[dh][^>]*>([\s\S]*?)<\/t[dh]>/gi), (x) => stripHtml(x[1]));
+    return {
+      metric: cells[0] || '',
+      values: cells.slice(1, 1 + periods.length),
+    };
+  }).filter((row) => row.metric);
+
+  return { periods, endDates, rows };
+}
+
+function normalizeMetric(value) {
+  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function pickMetricRows(rows, requestedMetric) {
+  if (!requestedMetric) return [];
+  const wanted = normalizeMetric(requestedMetric);
+  return rows
+    .map((row) => {
+      const metric = normalizeMetric(row.metric);
+      let score = 0;
+      if (metric === wanted) score += 100;
+      if (metric.startsWith(wanted)) score += 35;
+      if (metric.includes(wanted)) score += 15;
+      if (wanted.includes(metric) && metric) score += 10;
+      return { ...row, score };
+    })
+    .filter((row) => row.score > 0)
+    .sort((a, b) => b.score - a.score);
+}
+
+async function financialsCommand(args) {
+  const limit = Math.max(1, Math.min(Number(args.limit) || 5, 12));
+  const spec = financialStatementSpec(args.statement);
+  const stock = await resolveStockDetail(args.symbol);
+  const period = String(args.period || 'annual').toLowerCase();
+  const suffix = period === 'quarterly' ? '?p=quarterly' : '';
+  const url = `${stock.url}${spec.path}${suffix}`;
+  const html = await fetchText(url);
+  const table = parseFinancialTable(html);
+
+  if (args.metric) {
+    const ranked = pickMetricRows(table.rows, args.metric);
+    const match = ranked[0];
+    if (!match) {
+      const suggestions = table.rows
+        .filter((row) => normalizeMetric(row.metric).includes(normalizeMetric(args.metric).slice(0, 4)))
+        .slice(0, 8)
+        .map((row) => row.metric);
+      throw new Error(`Metric "${args.metric}" not found.${suggestions.length ? ` Try one of: ${suggestions.join(', ')}` : ''}`);
+    }
+
+    return table.periods.slice(0, limit).map((label, index) => ({
+      symbol: stock.symbol,
+      statement: spec.statement,
+      metric: match.metric,
+      period: label,
+      endDate: table.endDates[index] || null,
+      value: match.values[index] ?? null,
+      url,
+    }));
+  }
+
+  return spec.defaults
+    .map((metric) => table.rows.find((row) => row.metric === metric))
+    .filter(Boolean)
+    .slice(0, limit)
+    .map((row) => ({
+      symbol: stock.symbol,
+      statement: spec.statement,
+      metric: row.metric,
+      period: table.periods[0] || null,
+      endDate: table.endDates[0] || null,
+      value: row.values[0] ?? null,
+      url,
+    }));
+}
+
 async function marketTableCommand(path, shape, limitArg) {
   const limit = Math.max(1, Math.min(Number(limitArg) || 10, 50));
   const html = await fetchText(`${BASE_URL}${path}`);
@@ -329,6 +466,24 @@ cli({
   ],
   columns: ['symbol', 'name', 'price', 'marketCap', 'peRatio', 'eps', 'revenue', 'analystTarget', 'analystUpside'],
   func: async (_page, args) => quoteCommand(args),
+});
+
+cli({
+  site: 'stockanalysis',
+  name: 'financials',
+  description: 'Get company financial statement data from StockAnalysis',
+  domain: 'stockanalysis.com',
+  strategy: Strategy.PUBLIC,
+  browser: false,
+  args: [
+    { name: 'symbol', required: true, positional: true, help: 'Ticker symbol, for example NVDA or AAPL' },
+    { name: 'statement', default: 'income', choices: ['income', 'balance', 'cashflow'], help: 'Financial statement type' },
+    { name: 'period', default: 'annual', choices: ['annual', 'quarterly'], help: 'Report period type' },
+    { name: 'metric', help: 'Optional metric name, for example Revenue or Free Cash Flow' },
+    { name: 'limit', type: 'int', default: 5, help: 'Without metric: number of default metrics. With metric: number of periods.' },
+  ],
+  columns: ['symbol', 'statement', 'metric', 'period', 'endDate', 'value'],
+  func: async (_page, args) => financialsCommand(args),
 });
 
 cli({
